@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Priority Queue Processing Stack
+
+Resources:
+  
+  HighPriorityQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: devops-High-Priority-Queue
+      VisibilityTimeout: 30
+
+  LowPriorityQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: devops-Low-Priority-Queue
+      VisibilityTimeout: 30
+  
+  PriorityQueueTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: devops-Priority-Queues-Topic
+
+  HighPrioritySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityQueueTopic
+      Protocol: sqs
+      Endpoint: !GetAtt HighPriorityQueue.Arn
+      FilterPolicy:
+        priority:
+high
+
+  LowPrioritySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref PriorityQueueTopic
+      Protocol: sqs
+      Endpoint: !GetAtt LowPriorityQueue.Arn
+      FilterPolicy:
+        priority:
+low
+   
+  HighPriorityPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+!Ref HighPriorityQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+Effect: Allow
+            Principal: "*"
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt HighPriorityQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PriorityQueueTopic
+
+  LowPriorityPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+!Ref LowPriorityQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+Effect: Allow
+            Principal: "*"
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt LowPriorityQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref PriorityQueueTopic  
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lambda_execution_role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+arn:aws:iam::aws:policy/AmazonSQSFullAccess
+arn:aws:iam::aws:policy/AmazonSNSFullAccess
+  
+  PriorityLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: devops-priorities-queue-function
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 5
+      Environment:
+        Variables:
+          high_priority_queue: !Ref HighPriorityQueue
+          low_priority_queue: !Ref LowPriorityQueue
+      Code:
+        S3Bucket: kklabuser-164249
+        S3Key: function-code.zip
